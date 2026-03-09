@@ -1,0 +1,993 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>濟州島 6日自駕行程互動地圖工具 (RWD版)</title>
+    <!-- Leaflet CSS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <!-- FontAwesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- SortableJS -->
+    <script src="https://cdn.jsdelivr.net/npm/sortablejs@latest/Sortable.min.js"></script>
+    <style>
+        :root {
+            --primary: #FF7F00;
+            --primary-light: #FFF4E8;
+            --accent: #00A8CC;
+            --text-main: #2c3e50;
+            --text-sub: #7f8c8d;
+            --bg: #f4f7f6;
+            --card-bg: #ffffff;
+            --shadow: 0 4px 15px rgba(0,0,0,0.05);
+            --radius: 12px;
+        }
+
+        * { box-sizing: border-box; }
+
+        body { 
+            margin: 0; padding: 0; 
+            font-family: 'PingFang TC', 'Microsoft JhengHei', sans-serif; 
+            display: flex; 
+            height: 100vh; width: 100vw; 
+            background-color: var(--bg); 
+            color: var(--text-main); 
+            overflow: hidden; /* Prevent body scroll on desktop */
+        }
+
+        /* Desktop Default Layout (Sidebar Left, Map Right) */
+        #sidebar { 
+            flex: 4; 
+            height: 100%; 
+            background: var(--card-bg); 
+            box-shadow: 4px 0 15px rgba(0,0,0,0.05); 
+            display: flex; flex-direction: column; 
+            z-index: 10; position: relative; 
+            order: 1;
+        }
+        .sidebar-header {
+            padding: 20px 20px 0 20px;
+            flex-shrink: 0;
+        }
+        #itinerary-lists {
+            flex: 1;
+            overflow-y: auto;
+            padding: 0 20px 20px 20px;
+            scroll-behavior: smooth;
+        }
+        #map-container { 
+            flex: 6; 
+            height: 100%; 
+            position: relative; 
+            z-index: 1; 
+            order: 2;
+        }
+        #map { height: 100%; width: 100%; }
+
+        /* Responsive Layout (Map Top, Sidebar Bottom) */
+        @media (max-width: 768px) {
+            body { 
+                flex-direction: column; 
+                overflow-y: auto; /* Allow scrolling on mobile */
+                height: auto; 
+                min-height: 100vh;
+            }
+            #map-container { 
+                flex: none; 
+                width: 100%; 
+                height: 45vh; /* Map takes up top 45% of viewport */
+                position: sticky; /* Keeps map visible when scrolling down */
+                top: 0;
+                order: 1;
+                z-index: 100;
+                box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+            }
+            #sidebar { 
+                flex: none; 
+                width: 100%; 
+                height: auto; /* Sidebar expands based on content */
+                overflow-y: visible; /* Disable inner scroll */
+                order: 2;
+                box-shadow: none;
+                padding: 15px;
+            }
+            #itinerary-lists {
+                overflow-y: visible;
+                height: auto;
+            }
+        }
+
+        h1 { font-size: 22px; color: var(--primary); margin-top: 0; margin-bottom: 20px; font-weight: 700; border-bottom: 2px solid var(--primary-light); padding-bottom: 10px;}
+
+        .controls { background: var(--bg); padding: 15px; border-radius: var(--radius); margin-bottom: 20px; }
+        .controls h3 { margin: 0 0 10px 0; font-size: 16px; color: var(--accent); }
+        .input-group { display: flex; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+        .input-group input, .input-group select { flex: 1; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 14px; min-width: 100px; }
+        .btn { padding: 8px 15px; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-size: 14px; transition: all 0.2s; }
+        .btn-add { background: var(--primary); color: white; flex: 1; }
+        .btn-add:hover { background: #e67300; }
+
+        .day-container { margin-bottom: 25px; background: white; border: 1px solid #eee; border-radius: var(--radius); padding: 15px; box-shadow: var(--shadow); }
+        .day-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; }
+        .day-header h2 { margin: 0; font-size: 18px; color: var(--text-main); display: flex; align-items: center; gap: 8px; }
+        .day-header h2 span { background: var(--primary); color: white; width: 28px; height: 28px; display: inline-flex; align-items: center; justify-content: center; border-radius: 50%; font-size: 14px; }
+
+        .location-list { list-style: none; padding: 0; margin: 0; min-height: 40px; }
+
+        /* Location Item / Card */
+        .location-item { 
+            background: var(--bg); 
+            margin-bottom: 10px; 
+            padding: 12px 15px; 
+            border-radius: 8px; 
+            display: flex; 
+            justify-content: space-between; 
+            align-items: center; 
+            cursor: grab; 
+            border-left: 4px solid var(--accent); 
+            transition: transform 0.2s, box-shadow 0.2s; 
+        }
+        .location-item:hover { transform: translateX(2px); box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
+        .location-item:active { cursor: grabbing; }
+
+        .loc-content-wrapper { display: flex; gap: 12px; align-items: center; width: 100%; }
+
+        /* Image Preview Style */
+        .loc-img-preview {
+            width: 70px; 
+            height: 70px; 
+            border-radius: 6px; 
+            object-fit: cover; 
+            flex-shrink: 0; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            background-color: #ddd;
+        }
+
+        .loc-text { display: flex; flex-direction: column; gap: 6px; flex-grow: 1; }
+        .loc-name { font-weight: bold; font-size: 15px; }
+        .loc-links { display: flex; gap: 10px; font-size: 12px; flex-wrap: wrap;}
+        .loc-links a { color: var(--accent); text-decoration: none; display: inline-flex; align-items: center; gap: 4px; }
+        .loc-links a:hover { text-decoration: underline; color: #007b99; }
+        .loc-links a.google { color: #EA4335; }
+
+        .loc-actions { display: flex; gap: 8px; margin-left: 10px; }
+        .btn-icon { background: none; border: none; cursor: pointer; font-size: 16px; color: var(--text-sub); transition: color 0.2s; padding: 5px; }
+        .btn-icon:hover.delete { color: #e74c3c; }
+
+        /* Map specific classes */
+        .custom-popup .leaflet-popup-content-wrapper { border-radius: 8px; padding: 0; overflow: hidden; }
+        .custom-popup .leaflet-popup-content { margin: 0; padding: 15px; font-family: inherit; }
+        .popup-title { font-weight: bold; font-size: 16px; margin-bottom: 5px; color: var(--primary); }
+        .popup-img { width: 100%; height: 120px; object-fit: cover; border-radius: 6px; margin-top: 8px; margin-bottom: 8px; }
+
+        .map-instruction { position: absolute; top: 10px; left: 50%; transform: translateX(-50%); background: rgba(0,0,0,0.7); color: white; padding: 8px 16px; border-radius: 20px; z-index: 1000; font-size: 14px; display: none; pointer-events: none;}
+    </style>
+</head>
+<body>
+
+<div id="sidebar">
+    <div class="sidebar-header">
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 20px;">
+        <h1 style="margin: 0; font-size: 1.5rem;"><i class="fa-solid fa-map-location-dot"></i> 濟州島 6日行程規劃工具</h1>
+        <button class="btn" style="background-color: #27ae60; padding: 6px 15px; font-size: 14px; white-space: nowrap; flex-shrink: 0;" onclick="exportTool()"><i class="fa-solid fa-floppy-disk"></i> 更新</button>
+    </div>
+
+    
+        <div class="controls">
+        <h3><i class="fa-solid fa-plus-circle"></i> 新增地點</h3>
+        <div class="input-group">
+            <input type="text" id="new-loc-name" placeholder="地點名稱">
+            <select id="new-loc-day">
+                <option value="1">Day 1</option>
+                <option value="2">Day 2</option>
+                <option value="3">Day 3</option>
+                <option value="4">Day 4</option>
+                <option value="5">Day 5</option>
+                <option value="6">Day 6</option>
+            </select>
+        </div>
+        <div class="input-group">
+            <input type="number" id="new-loc-lat" placeholder="緯度 (Lat)" step="0.0001">
+            <input type="number" id="new-loc-lon" placeholder="經度 (Lon)" step="0.0001">
+        </div>
+        <div class="input-group">
+            <input type="text" id="new-loc-img" placeholder="預覽圖片網址 (選填，無則保留原樣)">
+        </div>
+        <div style="display: flex; gap: 10px;">
+            <button class="btn btn-add" onclick="toggleMapClickMode()"><i class="fa-solid fa-location-crosshairs"></i> 在地圖上點選</button>
+            <button class="btn btn-add" onclick="addLocation()"><i class="fa-solid fa-check"></i> 確認新增</button>
+        </div>
+    </div>
+
+    </div>
+    <div id="itinerary-lists"></div>
+</div>
+
+<div id="map-container">
+    <div id="map-instruction" class="map-instruction">請在地圖上點擊以選擇座標</div>
+    
+    <!-- Floating Day Navigation Bar on Map -->
+    <div id="day-nav-floating" style="position: absolute; top: 15px; left: 50%; transform: translateX(-50%); z-index: 1000; background: rgba(255, 255, 255, 0.95); padding: 8px 12px; border-radius: 30px; box-shadow: 0 4px 15px rgba(0,0,0,0.15); display: flex; gap: 8px; overflow-x: auto; max-width: 90vw; backdrop-filter: blur(5px); border: 1px solid rgba(0,0,0,0.05);">
+        <button class="day-tab active" data-target-day="all" onclick="filterDay('all', true)" style="padding: 6px 14px; border: none; border-radius: 20px; background: transparent; color: rgb(68, 68, 68); cursor: pointer; white-space: nowrap; font-weight: 500; font-size: 14px; box-shadow: none;">顯示全部</button>
+        <button class="day-tab" data-target-day="1" onclick="filterDay(1, true)" style="padding: 6px 14px; border: 1px solid transparent; border-radius: 20px; background: transparent; cursor: pointer; white-space: nowrap; font-size: 14px; font-weight: 500; color: rgb(68, 68, 68); transition: 0.2s; box-shadow: none;">Day 1</button>
+        <button class="day-tab" data-target-day="2" onclick="filterDay(2, true)" style="padding: 6px 14px; border: 1px solid transparent; border-radius: 20px; background: transparent; cursor: pointer; white-space: nowrap; font-size: 14px; font-weight: 500; color: rgb(68, 68, 68); transition: 0.2s; box-shadow: none;">Day 2</button>
+        <button class="day-tab" data-target-day="3" onclick="filterDay(3, true)" style="padding: 6px 14px; border: 1px solid transparent; border-radius: 20px; background: transparent; cursor: pointer; white-space: nowrap; font-size: 14px; font-weight: 500; color: rgb(68, 68, 68); transition: 0.2s; box-shadow: none;">Day 3</button>
+        <button class="day-tab" data-target-day="4" onclick="filterDay(4, true)" style="padding: 6px 14px; border: 1px solid transparent; border-radius: 20px; background: transparent; cursor: pointer; white-space: nowrap; font-size: 14px; font-weight: 500; color: rgb(68, 68, 68); transition: 0.2s; box-shadow: none;">Day 4</button>
+        <button class="day-tab" data-target-day="5" onclick="filterDay(5, true)" style="padding: 6px 14px; border: 1px solid transparent; border-radius: 20px; background: transparent; cursor: pointer; white-space: nowrap; font-size: 14px; font-weight: 500; color: rgb(68, 68, 68); transition: 0.2s; box-shadow: none;">Day 5</button>
+        <button class="day-tab" data-target-day="6" onclick="filterDay(6, true)" style="padding: 6px 14px; border: 1px solid transparent; border-radius: 20px; background: var(--primary); cursor: pointer; white-space: nowrap; font-size: 14px; font-weight: bold; color: white; transition: 0.2s; box-shadow: rgba(0, 0, 0, 0.2) 0px 2px 5px;">Day 6</button>
+    </div>
+
+    <div id="map" class="" tabindex="0"></div>
+</div>
+
+<!-- Leaflet JS -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script>
+    // Initial data from the provided JSON, with an example image for the first location to show functionality
+    const initialLocations = [
+    {
+        "Day": 1,
+        "Name": "濟州國際機場",
+        "Lat": 33.5104,
+        "Lon": 126.4913,
+        "Image": ""
+    },
+    {
+        "Day": 1,
+        "Name": "The Safe 租車公司",
+        "Lat": 33.5065,
+        "Lon": 126.5015,
+        "Image": ""
+    },
+    {
+        "Day": 1,
+        "Name": "蓮洞夜市",
+        "Lat": 33.4868,
+        "Lon": 126.49,
+        "Image": ""
+    },
+    {
+        "Day": 1,
+        "Name": "石墻黑豬肉",
+        "Lat": 33.4855,
+        "Lon": 126.4905,
+        "Image": ""
+    },
+    {
+        "Day": 1,
+        "Name": "24小時排骨湯",
+        "Lat": 33.49,
+        "Lon": 126.494,
+        "Image": ""
+    },
+    {
+        "Day": 1,
+        "Name": "Check in AIRBNB (住宿)",
+        "Lat": 33.4018,
+        "Lon": 126.2588,
+        "Image": ""
+    },
+    {
+        "Day": 2,
+        "Name": "AIRBNB (出發)",
+        "Lat": 33.4018,
+        "Lon": 126.2588,
+        "Image": ""
+    },
+    {
+        "Day": 2,
+        "Name": "羊駝牧場",
+        "Lat": 33.398,
+        "Lon": 126.3465,
+        "Image": ""
+    },
+    {
+        "Day": 2,
+        "Name": "山茶花之丘",
+        "Lat": 33.284,
+        "Lon": 126.3524,
+        "Image": ""
+    },
+    {
+        "Day": 2,
+        "Name": "山房山油菜花田",
+        "Lat": 33.2393,
+        "Lon": 126.3125,
+        "Image": ""
+    },
+    {
+        "Day": 2,
+        "Name": "西歸浦每日偶來市場",
+        "Lat": 33.2496,
+        "Lon": 126.5652,
+        "Image": ""
+    },
+    {
+        "Day": 2,
+        "Name": "Galchibada (帶魚燉煮備案)",
+        "Lat": 33.4643,
+        "Lon": 126.3117,
+        "Image": ""
+    },
+    {
+        "Day": 2,
+        "Name": "AIRBNB (回程)",
+        "Lat": 33.4018,
+        "Lon": 126.2588,
+        "Image": ""
+    },
+    {
+        "Day": 3,
+        "Name": "AIRBNB (出發)",
+        "Lat": 33.4018,
+        "Lon": 126.2588,
+        "Image": ""
+    },
+    {
+        "Day": 3,
+        "Name": "Jeomjeom (粟米Cafe)",
+        "Lat": 33.5413,
+        "Lon": 126.6346,
+        "Image": ""
+    },
+    {
+        "Day": 3,
+        "Name": "Cafe the Container",
+        "Lat": 33.488,
+        "Lon": 126.666,
+        "Image": ""
+    },
+    {
+        "Day": 3,
+        "Name": "城山港 (前往牛島)",
+        "Lat": 33.4733,
+        "Lon": 126.9335,
+        "Image": ""
+    },
+    {
+        "Day": 3,
+        "Name": "牛島",
+        "Lat": 33.5042,
+        "Lon": 126.954,
+        "Image": ""
+    },
+    {
+        "Day": 3,
+        "Name": "牛島海女食堂",
+        "Lat": 33.509,
+        "Lon": 126.9605,
+        "Image": ""
+    },
+    {
+        "Day": 3,
+        "Name": "Bokjassi 炭火燒肉",
+        "Lat": 33.4682,
+        "Lon": 126.9248,
+        "Image": ""
+    },
+    {
+        "Day": 3,
+        "Name": "AIRBNB (回程)",
+        "Lat": 33.4018,
+        "Lon": 126.2588,
+        "Image": ""
+    },
+    {
+        "Day": 4,
+        "Name": "AIRBNB (出發)",
+        "Lat": 33.4018,
+        "Lon": 126.2588,
+        "Image": ""
+    },
+    {
+        "Day": 4,
+        "Name": "倫敦貝果博物館 濟州店",
+        "Lat": 33.5543,
+        "Lon": 126.7095,
+        "Image": ""
+    },
+    {
+        "Day": 4,
+        "Name": "月汀里海水浴場",
+        "Lat": 33.556,
+        "Lon": 126.7958,
+        "Image": ""
+    },
+    {
+        "Day": 4,
+        "Name": "Hugely Jeju (橘子Cafe)",
+        "Lat": 33.5165,
+        "Lon": 126.5056,
+        "Image": ""
+    },
+    {
+        "Day": 4,
+        "Name": "東門市場",
+        "Lat": 33.5121,
+        "Lon": 126.5262,
+        "Image": ""
+    },
+    {
+        "Day": 4,
+        "Name": "熟成到 (熟成黑豬肉)",
+        "Lat": 33.482,
+        "Lon": 126.48,
+        "Image": ""
+    },
+    {
+        "Day": 4,
+        "Name": "AIRBNB (回程)",
+        "Lat": 33.4018,
+        "Lon": 126.2588,
+        "Image": ""
+    },
+    {
+        "Day": 5,
+        "Name": "AIRBNB (出發)",
+        "Lat": 33.4018,
+        "Lon": 126.2588,
+        "Image": ""
+    },
+    {
+        "Day": 5,
+        "Name": "城山日出峰",
+        "Lat": 33.4586,
+        "Lon": 126.9422,
+        "Image": ""
+    },
+    {
+        "Day": 5,
+        "Name": "明珍鮑魚",
+        "Lat": 33.5303,
+        "Lon": 126.834,
+        "Image": ""
+    },
+    {
+        "Day": 5,
+        "Name": "鹿山路油菜花田",
+        "Lat": 33.3925,
+        "Lon": 126.7025,
+        "Image": ""
+    },
+    {
+        "Day": 5,
+        "Name": "蓮洞商圈 (步行街)",
+        "Lat": 33.4865,
+        "Lon": 126.4875,
+        "Image": ""
+    },
+    {
+        "Day": 5,
+        "Name": "AIRBNB (回程)",
+        "Lat": 33.4018,
+        "Lon": 126.2588,
+        "Image": ""
+    },
+    {
+        "Day": 6,
+        "Name": "AIRBNB (出發)",
+        "Lat": 33.4018,
+        "Lon": 126.2588,
+        "Image": ""
+    },
+    {
+        "Day": 6,
+        "Name": "9.81 Park 重力賽車",
+        "Lat": 33.3592,
+        "Lon": 126.3562,
+        "Image": ""
+    },
+    {
+        "Day": 6,
+        "Name": "三姓穴海鮮湯",
+        "Lat": 33.4975,
+        "Lon": 126.5315,
+        "Image": ""
+    },
+    {
+        "Day": 6,
+        "Name": "濟州國際機場",
+        "Lat": 33.5104,
+        "Lon": 126.4913,
+        "Image": ""
+    }
+];
+
+    let locations = initialLocations.map((loc, index) => ({ ...loc, id: 'loc_' + index }));
+    let nextId = locations.length;
+
+    let activeDayFilter = 'all';
+    let isAutoScrolling = false;
+
+    window.filterDay = function(day, doScroll = false) {
+        if (activeDayFilter === day) return;
+        activeDayFilter = day;
+
+        // Update UI of floating tabs
+        document.querySelectorAll('.day-tab').forEach(btn => {
+            if(btn.dataset.targetDay == day) {
+                btn.style.background = 'var(--primary)';
+                btn.style.color = 'white';
+                btn.style.fontWeight = 'bold';
+                btn.style.boxShadow = '0 2px 5px rgba(0,0,0,0.2)';
+                // Center the active tab in mobile view if it overflows
+                btn.parentElement.scrollTo({
+                    left: btn.offsetLeft - (btn.parentElement.clientWidth / 2) + (btn.clientWidth / 2),
+                    behavior: 'smooth'
+                });
+            } else {
+                btn.style.background = 'transparent';
+                btn.style.color = '#444';
+                btn.style.fontWeight = '500';
+                btn.style.boxShadow = 'none';
+            }
+        });
+
+        // Scroll to the day in sidebar if clicked manually
+        if (doScroll && day !== 'all') {
+            isAutoScrolling = true;
+            // Find the day container
+            const allContainers = document.querySelectorAll('.day-container');
+            let targetContainer = null;
+            allContainers.forEach(c => {
+                if(c.querySelector(`ul[data-day="${day}"]`)) {
+                    targetContainer = c;
+                }
+            });
+
+            if (targetContainer) {
+                const listContainer = document.getElementById('itinerary-lists');
+                // Calculate precise scroll position
+                const scrollToPos = targetContainer.offsetTop - listContainer.offsetTop;
+                listContainer.scrollTo({
+                    top: scrollToPos,
+                    behavior: 'smooth'
+                });
+
+                // Reset flag after scroll completes
+                setTimeout(() => { isAutoScrolling = false; }, 800);
+            }
+        }
+
+        updateMap();
+    };
+
+    // Scroll tracking: Update map based on which day is currently being viewed
+    document.addEventListener("DOMContentLoaded", () => {
+        const sidebar = document.getElementById('itinerary-lists');
+
+        sidebar.addEventListener('scroll', () => {
+            if (isAutoScrolling) return; // Ignore if user just clicked a tab
+
+            // If scrolled near top, show all
+            if (sidebar.scrollTop < 50) {
+                filterDay('all', false);
+                return;
+            }
+
+            // Find which day container is closest to the top of the sidebar viewport
+            const containers = document.querySelectorAll('.day-container');
+            let visibleDay = null;
+            let minDistance = Infinity;
+
+            containers.forEach(container => {
+                const rect = container.getBoundingClientRect();
+                const sidebarRect = sidebar.getBoundingClientRect();
+
+                const offset = rect.top - sidebarRect.top;
+                // As long as the container's top is near or above the visible area, AND its bottom hasn't scrolled past the top yet
+                if (offset < 150 && rect.bottom > sidebarRect.top + 50) {
+                    const ul = container.querySelector('ul.location-list');
+                    if(ul) visibleDay = parseInt(ul.dataset.day);
+                }
+            });
+
+            if (visibleDay && visibleDay !== activeDayFilter) {
+                filterDay(visibleDay, false);
+            }
+        });
+    });
+
+
+    const koreanNameMap = {
+        "濟州國際機場": "제주국제공항",
+        "The Safe 租車公司": "더세이프렌터카",
+        "蓮洞夜市": "제주연동야시장",
+        "石墻黑豬肉": "연동돌담",
+        "24小時排骨湯": "등갈비찌개",
+        "Check in AIRBNB (住宿)": "제주특별자치도 제주시 한림읍 옹포2길 45",
+        "AIRBNB (出發)": "제주특별자치도 제주시 한림읍 옹포2길 45",
+        "羊駝牧場": "도치돌 알파카목장",
+        "山茶花之丘": "카멜리아힐",
+        "山房山油菜花田": "산방산 유채꽃밭",
+        "西歸浦每日偶來市場": "서귀포매일올레시장",
+        "Chungminjeong (帶魚燉煮)": "충민정",
+        "Galchibada (帶魚燉煮備案)": "갈치바다",
+        "AIRBNB (回程)": "제주특별자치도 제주시 한림읍 옹포2길 45",
+        "Jeomjeom (粟米Cafe)": "점점",
+        "Cafe the Container": "카페더콘테나",
+        "城山港 (前往牛島)": "성산포항종합여객터미널",
+        "牛島": "우도",
+        "牛島海女食堂": "우도해녀식당",
+        "Bokjassi 炭火燒肉": "복자씨연탄구이",
+        "倫敦貝果博物館 濟州店": "런던베이글뮤지엄 제주점",
+        "月汀里海水浴場": "월정리해수욕장",
+        "Camel Coffee 濟州店": "카멜커피 제주",
+        "Hugely Jeju (橘子Cafe)": "휴즐리 제주",
+        "東門市場": "동문재래시장",
+        "熟成到 (熟成黑豬肉)": "숙성도",
+        "城山日出峰": "성산일출봉",
+        "明珍鮑魚": "명진전복",
+        "Boromwat 四季花田": "보롬왓",
+        "鹿山路油菜花田": "녹산로 유채꽃길",
+        "蓮洞商圈 (步行街)": "누웨마루거리",
+        "9.81 Park 重力賽車": "9.81파크",
+        "漢潭海岸散步路": "한담해안산책로",
+        "道頭洞彩虹海岸道路": "도두동무지개해안도로",
+        "三姓穴海鮮湯": "삼성혈해물탕",
+        "大元家 (海鮮備案)": "대원가"
+};
+
+    function getNaverSearchName(name) {
+        if (koreanNameMap[name]) {
+            return koreanNameMap[name];
+        }
+        let cleanName = name.replace(/\([^)]*\)/g, '').trim();
+        return cleanName || name;
+    }
+
+    // Map Initialization
+    const map = L.map('map').setView([33.38, 126.60], 10);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+        attribution: '&copy; OpenStreetMap contributors',
+        subdomains: 'abcd',
+        maxZoom: 18
+    }).addTo(map);
+
+    // Fix map sizing on window resize for responsive layout
+    window.addEventListener('resize', () => {
+        setTimeout(() => map.invalidateSize(), 100);
+    });
+
+    let markersLayer = L.featureGroup().addTo(map);
+    let routeLayers = L.featureGroup().addTo(map);
+
+    const dayColors = {
+        1: '#FF595E', 2: '#FFCA3A', 3: '#8AC926', 
+        4: '#1982C4', 5: '#6A4C93', 6: '#F564A9'
+    };
+
+    
+    // --- 新增：編輯圖片與匯出功能 ---
+    window.editImage = function(locId) {
+        const loc = locations.find(l => l.id === locId);
+        if (loc) {
+            const newUrl = prompt(`請輸入「${loc.Name}」的預覽圖片網址\n(若不想顯示圖片，請直接清空並按確定)：`, loc.Image || '');
+            if (newUrl !== null) {
+                loc.Image = newUrl.trim();
+                renderApp(); // 重新渲染畫面以套用新圖片
+            }
+        }
+    };
+
+    window.exportTool = function() {
+        if(!confirm("確定要將目前最新的行程與修改狀態打包「更新」下載嗎？")) return;
+
+        // 複製一份當前的 HTML 結構
+        const clone = document.documentElement.cloneNode(true);
+
+        // 清理動態生成的元素，讓下載後的檔案保持乾淨初始狀態
+        const mapDiv = clone.querySelector('#map');
+        if (mapDiv) {
+            mapDiv.innerHTML = '';
+            mapDiv.className = '';
+            mapDiv.removeAttribute('style');
+        }
+        const lists = clone.querySelector('#itinerary-lists');
+        if (lists) lists.innerHTML = '';
+
+        // 組裝乾淨的 HTML 字串
+        let htmlString = "<!DOCTYPE html>\n<html lang=\"zh-HK\">\n" + clone.innerHTML + "\n</html>";
+
+        // 更新 initialLocations 陣列為最新的資料
+        const cleanLocations = locations.map(l => ({
+            Day: l.Day,
+            Name: l.Name,
+            Lat: l.Lat,
+            Lon: l.Lon,
+            Image: l.Image || ""
+        }));
+        const jsonStr = JSON.stringify(cleanLocations, null, 4);
+
+        // 使用正則表達式替換舊的 initialLocations
+        htmlString = htmlString.replace(/let initialLocations = \[[\s\S]*?\];/, `const initialLocations = ${jsonStr};`);
+
+        // 觸發下載
+        const blob = new Blob([htmlString], {type: "text/html;charset=utf-8"});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = "My_Jeju_Itinerary_Pack.html";
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+    };
+    // ---------------------------------
+
+    let isMapClickMode = false;
+
+
+    function renderApp() {
+        renderSidebar();
+        updateMap();
+    }
+
+    const escapeHtml = (unsafe) => {
+        if (!unsafe) return '';
+        return unsafe
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#039;");
+    }
+
+    function renderSidebar() {
+        const container = document.getElementById('itinerary-lists');
+        container.innerHTML = '';
+
+        
+        for (let day = 1; day <= 6; day++) {
+
+            const dayLocs = locations.filter(l => parseInt(l.Day) === day);
+
+            const dayDiv = document.createElement('div');
+            dayDiv.className = 'day-container';
+            dayDiv.innerHTML = `
+                <div class="day-header">
+                    <h2><span style="background-color: ${dayColors[day] || '#333'}">${day}</span> Day ${day}</h2>
+                    <small>${dayLocs.length} 個地點</small>
+                </div>
+                <ul class="location-list" id="list-day-${day}" data-day="${day}">
+                </ul>
+            `;
+
+            const ul = dayDiv.querySelector('ul');
+
+            dayLocs.forEach((loc, index) => {
+                const li = document.createElement('li');
+                li.className = 'location-item';
+                li.dataset.id = loc.id;
+                li.style.borderLeftColor = dayColors[day] || '#333';
+
+                const queryName = encodeURIComponent(loc.Name);
+                const naverQueryName = encodeURIComponent(getNaverSearchName(loc.Name));
+                const naverLink = `https://map.naver.com/v5/search/${naverQueryName}?lang=en`;
+                const googleLink = `https://www.google.com/maps/search/?api=1&query=${queryName}`;
+
+                // Construct HTML conditionally based on whether an image exists
+                let imgHtml = '';
+                if (loc.Image && loc.Image.trim() !== '') {
+                    imgHtml = `<img src="${escapeHtml(loc.Image)}" class="loc-img-preview" alt="Preview">`;
+                }
+
+                li.innerHTML = `
+                    <div class="loc-content-wrapper">
+                        ${imgHtml}
+                        <div class="loc-text">
+                            <div class="loc-name">${escapeHtml(loc.Name)}</div>
+                            <div class="loc-links">
+                                <a href="${naverLink}" target="_blank"><img src="https://ts1.cn.mm.bing.net/th?id=ODLS.ed9835cd-bb9f-4fba-bbdd-534bc7050523&w=32&h=32&qlt=90&pcl=fffffa&o=6&pid=1.2" width="14" height="14" style="border-radius:2px"> Naver Map</a>
+                                <a href="${googleLink}" target="_blank" class="google"><i class="fa-solid fa-map-pin"></i> Google</a>
+                                <a href="javascript:void(0)" onclick="editImage('${loc.id}')" style="color:var(--text-sub);"><i class="fa-solid fa-image"></i> 圖片</a>
+                                ${(() => {
+                                    if(index > 0) {
+                                        const prevLoc = dayLocs[index - 1];
+                                        const prevNaverName = encodeURIComponent(getNaverSearchName(prevLoc.Name));
+                                        return `<a href="https://map.naver.com/p/directions/${prevLoc.Lon},${prevLoc.Lat},${prevNaverName},,/${loc.Lon},${loc.Lat},${naverQueryName},,/-/car?lang=en" target="_blank" style="color:#e67e22; font-weight:bold;"><i class="fa-solid fa-route"></i> 前往此站</a>`;
+                                    }
+                                    return '';
+                                })()}
+                            </div>
+                        </div>
+                    </div>
+                    <div class="loc-actions">
+                        <button class="btn-icon delete" onclick="deleteLocation('${loc.id}')" title="刪除地點"><i class="fa-solid fa-trash-can"></i></button>
+                    </div>
+                `;
+                ul.appendChild(li);
+            });
+
+            container.appendChild(dayDiv);
+
+            new Sortable(ul, {
+                group: 'shared',
+                animation: 150,
+                delay: 100, // Small delay for better mobile dragging
+                delayOnTouchOnly: true,
+                onEnd: function (evt) {
+                    syncStateFromUI();
+                }
+            });
+        }
+    }
+
+    function syncStateFromUI() {
+        const newLocations = [];
+        
+        for (let day = 1; day <= 6; day++) {
+
+            const list = document.getElementById(`list-day-${day}`);
+            const items = list.querySelectorAll('li');
+            items.forEach((item) => {
+                const id = item.dataset.id;
+                const locData = locations.find(l => l.id === id);
+                if (locData) {
+                    locData.Day = day;
+                    newLocations.push(locData);
+                }
+            });
+        }
+        locations = newLocations;
+        renderSidebar(); 
+        updateMap();
+    }
+
+    function updateMap() {
+        markersLayer.clearLayers();
+        routeLayers.clearLayers();
+
+        
+                for (let day = 1; day <= 6; day++) {
+            if (activeDayFilter !== 'all' && parseInt(activeDayFilter) !== day) {
+                continue;
+            }
+
+            const dayLocs = locations.filter(l => parseInt(l.Day) === day);
+            if (dayLocs.length === 0) continue;
+
+            const latlngs = [];
+            const color = dayColors[day] || '#333';
+
+            dayLocs.forEach((loc, index) => {
+                const latlng = [loc.Lat, loc.Lon];
+                latlngs.push(latlng);
+
+                const markerHtml = `
+                    <div style="background-color: ${color}; width: 26px; height: 26px; border-radius: 50%; color: white; display: flex; align-items: center; justify-content: center; font-weight: bold; border: 2px solid white; box-shadow: 0 2px 5px rgba(0,0,0,0.3); font-size:12px;">
+                        ${index + 1}
+                    </div>
+                `;
+                const icon = L.divIcon({
+                    html: markerHtml,
+                    className: 'custom-div-icon',
+                    iconSize: [30, 30],
+                    iconAnchor: [15, 15]
+                });
+
+                const queryName = encodeURIComponent(loc.Name);
+                const naverQueryName = encodeURIComponent(getNaverSearchName(loc.Name));
+
+                // Map popup image
+                let popupImgHtml = '';
+                if (loc.Image && loc.Image.trim() !== '') {
+                    popupImgHtml = `<img src="${escapeHtml(loc.Image)}" class="popup-img" alt="Location Image">`;
+                }
+
+                const popupContent = `
+                    <div class="custom-popup">
+                        <div class="popup-title" style="color:${color}">D${day} - ${escapeHtml(loc.Name)}</div>
+                        ${popupImgHtml}
+                        <div style="margin-top:8px;">
+                            <a href="https://map.naver.com/v5/search/${naverQueryName}?lang=en" target="_blank" style="display:block; margin-bottom:5px; text-decoration:none; color:#2ecc71;">➡️ 在 Naver Map 開啟</a>
+                            <a href="https://www.google.com/maps/search/?api=1&query=${queryName}" target="_blank" style="display:block; margin-bottom:5px; text-decoration:none; color:#e74c3c;">➡️ 在 Google Map 開啟</a>
+                            ${(() => {
+                                if(index > 0) {
+                                    const prevLoc = dayLocs[index - 1];
+                                    const prevNaverName = encodeURIComponent(getNaverSearchName(prevLoc.Name));
+                                    return `<a href="https://map.naver.com/p/directions/${prevLoc.Lon},${prevLoc.Lat},${prevNaverName},,/${loc.Lon},${loc.Lat},${naverQueryName},,/-/car?lang=en" target="_blank" style="display:block; margin-top:8px; padding-top:8px; border-top:1px dashed #ccc; text-decoration:none; color:#d35400; font-weight:bold;"><i class="fa-solid fa-car"></i> Naver導航：從上一站到此</a>`;
+                                }
+                                return '';
+                            })()}
+                        </div>
+                    </div>
+                `;
+
+                L.marker(latlng, { icon: icon })
+                 .bindPopup(popupContent)
+                 .addTo(markersLayer);
+            });
+
+            if (latlngs.length > 1) {
+                L.polyline(latlngs, { color: color, weight: 3, opacity: 0.7, dashArray: '5, 10', lineJoin: 'round' }).addTo(routeLayers);
+                L.polyline(latlngs, { color: color, weight: 3, opacity: 0.4 }).addTo(routeLayers);
+            }
+        }
+
+        if (locations.length > 0 && !isMapClickMode) {
+            map.fitBounds(markersLayer.getBounds(), { padding: [30, 30] });
+        }
+    }
+
+    function deleteLocation(id) {
+        if(confirm("確定要刪除這個地點嗎？")) {
+            locations = locations.filter(l => l.id !== id);
+            renderApp();
+        }
+    }
+
+    function toggleMapClickMode() {
+        isMapClickMode = !isMapClickMode;
+        const btn = document.querySelector('button[onclick="toggleMapClickMode()"]');
+        const instruction = document.getElementById('map-instruction');
+
+        if (isMapClickMode) {
+            btn.style.background = '#e74c3c';
+            btn.innerHTML = '<i class="fa-solid fa-xmark"></i> 取消點擊取座標';
+            map.getContainer().style.cursor = 'crosshair';
+            instruction.style.display = 'block';
+
+            // Scroll to map on mobile
+            if (window.innerWidth <= 768) {
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+        } else {
+            btn.style.background = 'var(--primary)';
+            btn.innerHTML = '<i class="fa-solid fa-location-crosshairs"></i> 在地圖上點選';
+            map.getContainer().style.cursor = '';
+            instruction.style.display = 'none';
+        }
+    }
+
+    map.on('click', function(e) {
+        if (!isMapClickMode) return;
+
+        const lat = e.latlng.lat.toFixed(4);
+        const lon = e.latlng.lng.toFixed(4);
+
+        document.getElementById('new-loc-lat').value = lat;
+        document.getElementById('new-loc-lon').value = lon;
+
+        toggleMapClickMode(); 
+    });
+
+    function addLocation() {
+        const name = document.getElementById('new-loc-name').value.trim();
+        const day = document.getElementById('new-loc-day').value;
+        const lat = parseFloat(document.getElementById('new-loc-lat').value);
+        const lon = parseFloat(document.getElementById('new-loc-lon').value);
+        const img = document.getElementById('new-loc-img').value.trim();
+
+        if (!name) { alert("請輸入地點名稱"); return; }
+        if (isNaN(lat) || isNaN(lon)) { alert("請輸入正確的經緯度或在地圖上點擊取得"); return; }
+
+        const newLoc = {
+            id: 'loc_' + nextId++,
+            Day: parseInt(day),
+            Name: name,
+            Lat: lat,
+            Lon: lon,
+            Image: img || null
+        };
+
+        locations.push(newLoc);
+
+        // Reset inputs
+        document.getElementById('new-loc-name').value = '';
+        document.getElementById('new-loc-lat').value = '';
+        document.getElementById('new-loc-lon').value = '';
+        document.getElementById('new-loc-img').value = '';
+
+        renderApp();
+    }
+
+    // Initialize
+    renderApp();
+
+</script>
+
+
+</body>
+</html>
